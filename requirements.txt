@@ -1,0 +1,16 @@
+# python==3.12
+numpy
+tqdm
+jupyter
+ipykernel
+datasets
+matplotlib
+seaborn
+scikit-learn
+absl-py
+torch
+transformers[torch]
+sentencepiece 
+langchain
+langchain-openai
+langchain-huggingface
