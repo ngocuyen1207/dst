@@ -4,8 +4,10 @@ from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-from utils.evaluation import load_json, flatten_belief_state
 import torch
+import sys
+sys.path.append('.')
+from utils.evaluation import load_json, flatten_belief_state
 
 
 class LLM_DST_Baseline:
@@ -72,7 +74,9 @@ class HF_DST_GenericBaseline:
         ]
         inputs = self.tokenizer(prompts, return_tensors="pt", padding=True, truncation=True).to(self.device)
         outputs = self.model.generate(**inputs, max_length=self.max_tokens)
-        return self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        outputs = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        return outputs
+    
 
     def extract_fewshot_examples(self, data_path, num_examples=3):
         from random import shuffle
@@ -113,8 +117,19 @@ class HF_DST_GenericBaseline:
         return f"""
 You are a belief state extraction assistant for task-oriented dialogues.
 
-Given a dialogue history, extract the current belief state as a list of 'domain-slot = value' pairs, separated by commas.
-Only include slots that have been explicitly mentioned. Do not guess. Format exactly like the examples.{fewshot_text}
+Given the dialogue history, extract the current belief state as a list of 'domain-slot = value' pairs, separated by commas.
+
+Only include information explicitly mentioned by the user. Do not guess or infer missing values.
+
+### Dialogue:
+User: I need a hotel in the north part of town.
+System: What price range are you looking for?
+User: Something cheap.
+System: Do you need free parking?
+User: Yes, that would be great.
+
+### Belief State:
+hotel-area = north, hotel-pricerange = cheap, hotel-parking = yes
 
 ### Your Turn
 Dialogue:

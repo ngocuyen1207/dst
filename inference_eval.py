@@ -5,7 +5,6 @@ from tqdm import tqdm
 
 from models.baseline_dst import T5DSTBaseline, LLM_DST_Baseline, HF_DST_GenericBaseline
 from utils.evaluation import parse_belief_state, compute_joint_goal_accuracy, load_json
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"  
 
 
 def load_dialogues(data_path):
@@ -42,12 +41,12 @@ def main():
     parser.add_argument("--data_path", type=str, help="Path to dev/test JSON file", default="data/mw21/dev_dials.json")
     parser.add_argument("--model", type=str, choices=["t5", "gpt", "hf"], default="hf")
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--backup_path", type=str, default="inference_backup.json")
     parser.add_argument("--hf_model_id", type=str, help="Model ID from HuggingFace for HF mode", default="google/flan-t5-base")
     parser.add_argument("--fewshot_data", type=str, help="Path to training data JSON file for few-shot examples", default="data/mw21/train_dials.json")
 
     args = parser.parse_args()
-
+    args.backup_path = f"results/predictions/{args.model}_{args.hf_model_id}.json"
+    
     model = get_model(args.model, model_id=args.hf_model_id)
     dialogues, gold_states = load_dialogues(args.data_path)
     formatted_dialogues = [model.format_dialogue_history(turns) for turns in dialogues]
@@ -63,10 +62,20 @@ def main():
     for i in range(start, len(formatted_dialogues), args.batch_size):
         batch = formatted_dialogues[i:i + args.batch_size]
         batch_preds = model.predict_belief_state_batch(batch)
-        predictions.extend(batch_preds)
+        for j, pred in enumerate(batch_preds):
+            dialogue_index = i + j
+            entry = {
+                "dialogue_index": dialogue_index,
+                "dialogue_history": formatted_dialogues[dialogue_index],
+                "raw_prediction": pred,
+                "parsed_prediction": parse_belief_state(pred),
+                "gold_state": gold_states[dialogue_index],
+            }
+            entry["match"] = entry["parsed_prediction"] == entry["gold_state"]
+            predictions.append(entry)
 
         with open(args.backup_path, "w", encoding="utf-8") as f:
-            json.dump(predictions, f, ensure_ascii=False, indent=2)
+            json.dump(predictions, f, ensure_ascii=False, indent=4)
 
         pbar.update(len(batch_preds))
     pbar.close()
