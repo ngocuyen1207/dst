@@ -2,24 +2,31 @@ import torch
 from torch_geometric.data import Data
 from sentence_transformers import SentenceTransformer
 
-def build_graph(slot_list, coexistence_edges, domain_edges):
+def build_graph(slot_list, coexistence_edges, domain_edges, device='cpu', coexistence_weight=2.0, domain_weight=1.0):
     slot2idx = {slot: i for i, slot in enumerate(slot_list)}
-    num_slots = len(slot_list)
 
-    # Semantic embeddings
+    # Encode slot names
     model = SentenceTransformer("all-MiniLM-L6-v2")
-    slot_embeddings = model.encode(slot_list, convert_to_tensor=True)  # shape: [num_slots, hidden_size]
+    slot_embeddings = model.encode(slot_list, convert_to_tensor=True)
+    slot_embeddings = slot_embeddings.clone().detach().to(device).requires_grad_(True)
 
     edge_index = []
+    edge_weight = []
 
-    # Add coexistence and domain edges
-    for edge_dict in [coexistence_edges, domain_edges]:
-        for (s1, s2), _ in edge_dict.items():
-            i, j = slot2idx[s1], slot2idx[s2]
-            edge_index.append([i, j])
-            edge_index.append([j, i])  # undirected
+    # Add coexistence edges with higher weight
+    for (s1, s2), _ in coexistence_edges.items():
+        i, j = slot2idx[s1], slot2idx[s2]
+        edge_index += [[i, j], [j, i]]
+        edge_weight += [coexistence_weight, coexistence_weight]
 
-    edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()  # shape: [2, num_edges]
+    # Add domain edges with default weight
+    for (s1, s2), _ in domain_edges.items():
+        i, j = slot2idx[s1], slot2idx[s2]
+        edge_index += [[i, j], [j, i]]
+        edge_weight += [domain_weight, domain_weight]
 
-    graph_data = Data(x=slot_embeddings, edge_index=edge_index)
+    edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous().to(device)
+    edge_attr = torch.tensor(edge_weight, dtype=torch.float).to(device)
+
+    graph_data = Data(x=slot_embeddings, edge_index=edge_index, edge_attr=edge_attr).to(device)
     return graph_data, slot2idx
