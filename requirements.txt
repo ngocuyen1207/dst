@@ -16,4 +16,4 @@ langchain-openai
 langchain-huggingface
 sentence-transformers==5.0.0
 torch-geometric==2.6.1
-plotly-6.2.0
+plotly==6.2.0

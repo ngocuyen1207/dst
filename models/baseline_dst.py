@@ -3,12 +3,11 @@
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage
 from transformers import T5Tokenizer, T5ForConditionalGeneration
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AutoModelForCausalLM
 import torch
 import sys
 sys.path.append('.')
-from utils.evaluation import load_json, flatten_belief_state
-
+from utils.evaluation import load_json
 
 class LLM_DST_Baseline:
     def __init__(self, model_name="gpt-3.5-turbo", temperature=0.0):
@@ -47,9 +46,12 @@ Belief State:
 
 
 class HF_DST_GenericBaseline:
-    def __init__(self, model_id="google/flan-t5-base", temperature=0.0, max_tokens=128,fewshot_path=None):
+    def __init__(self, model_id="google/flan-t5-base", temperature=0.0, max_tokens=512,fewshot_path=None):
         self.tokenizer = AutoTokenizer.from_pretrained(model_id)
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_id)
+        try:
+            self.model = AutoModelForSeq2SeqLM.from_pretrained(model_id)
+        except ValueError:
+            self.model = AutoModelForCausalLM.from_pretrained(model_id)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
         self.max_tokens = max_tokens
@@ -114,28 +116,18 @@ class HF_DST_GenericBaseline:
         for i, (history, belief_state) in enumerate(self.fewshot_examples):
             fewshot_text += f"\n### Example {i+1}\nDialogue:\n{history}\n\nBelief State:\n{belief_state}\n"
 
-        return f"""
-You are a belief state extraction assistant for task-oriented dialogues.
-
-Given the dialogue history, extract the current belief state as a list of 'domain-slot = value' pairs, separated by commas.
-
-Only include information explicitly mentioned by the user. Do not guess or infer missing values.
-
-### Dialogue:
-User: I need a hotel in the north part of town.
-System: What price range are you looking for?
-User: Something cheap.
-System: Do you need free parking?
-User: Yes, that would be great.
-
-### Belief State:
-hotel-area = north, hotel-pricerange = cheap, hotel-parking = yes
-
-### Your Turn
-Dialogue:
+        return f"""Here is a dialogue between a user and a system:
 {dialogue_history}
 
-Belief State:
+Extract the belief state from the dialogue.
+Return it as a json, for example:
+
+{{
+    "hotel-area": "",
+    "restaurant-food": "",
+    "train-departure": "",
+}}
+
 """.strip()
 
 

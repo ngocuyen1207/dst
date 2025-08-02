@@ -4,7 +4,7 @@ import json
 from tqdm import tqdm
 
 from models.baseline_dst import T5DSTBaseline, LLM_DST_Baseline, HF_DST_GenericBaseline
-from utils.evaluation import parse_belief_state, compute_joint_goal_accuracy, load_json
+from utils.evaluation import parse_belief_state, compute_joint_goal_accuracy, load_json, compute_turn_accuracy, compute_micro_f1
 
 
 def load_dialogues(data_path):
@@ -41,7 +41,7 @@ def main():
     parser.add_argument("--data_path", type=str, help="Path to dev/test JSON file", default="data/mw21/dev_dials.json")
     parser.add_argument("--model", type=str, choices=["t5", "gpt", "hf"], default="hf")
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--hf_model_id", type=str, help="Model ID from HuggingFace for HF mode", default="google/flan-t5-base")
+    parser.add_argument("--hf_model_id", type=str, help="Model ID from HuggingFace for HF mode", default="Qwen/Qwen3-0.6B")
     parser.add_argument("--fewshot_data", type=str, help="Path to training data JSON file for few-shot examples", default="data/mw21/train_dials.json")
 
     args = parser.parse_args()
@@ -71,19 +71,22 @@ def main():
                 "parsed_prediction": parse_belief_state(pred),
                 "gold_state": gold_states[dialogue_index],
             }
-            entry["match"] = entry["parsed_prediction"] == entry["gold_state"]
             predictions.append(entry)
+
+        current_parsed_preds = [entry["parsed_prediction"] for entry in predictions]
+        current_gold_states = gold_states[:len(predictions)]
+
+        jga = compute_joint_goal_accuracy(current_parsed_preds, current_gold_states)
+        turn_acc = compute_turn_accuracy(current_parsed_preds, current_gold_states)
+        precision, recall, f1 = compute_micro_f1(current_parsed_preds, current_gold_states)
+
+        print(f"[{len(predictions)} turns] JGA: {jga:.2%} | Turn Acc: {turn_acc:.2%} | F1: {f1:.2%} (P: {precision:.2%}, R: {recall:.2%})")
 
         with open(args.backup_path, "w", encoding="utf-8") as f:
             json.dump(predictions, f, ensure_ascii=False, indent=4)
 
         pbar.update(len(batch_preds))
     pbar.close()
-
-    parsed_preds = [parse_belief_state(p) for p in predictions]
-    jga = compute_joint_goal_accuracy(parsed_preds, gold_states)
-    print(f"Joint Goal Accuracy (JGA): {jga:.2%}")
-
 
 if __name__ == "__main__":
     main()
