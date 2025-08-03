@@ -1,10 +1,14 @@
 import argparse
-import os
 import json
+import os
+
 from tqdm import tqdm
 
-from models.baseline_dst import T5DSTBaseline, LLM_DST_Baseline, HF_DST_GenericBaseline
-from utils.evaluation import parse_belief_state, compute_joint_goal_accuracy, load_json, compute_turn_accuracy, compute_micro_f1
+from models.baseline_dst import (HF_DST_GenericBaseline, LLM_DST_Baseline,
+                                 T5DSTBaseline)
+from utils.evaluation import (compute_joint_goal_accuracy, compute_micro_f1,
+                              compute_turn_accuracy, load_json,
+                              parse_belief_state)
 
 
 def load_dialogues(data_path):
@@ -32,6 +36,9 @@ def get_model(model_type, model_id="google/flan-t5-base", fewshot_path=None):
         return LLM_DST_Baseline()
     elif model_type == "hf":
         return HF_DST_GenericBaseline(model_id=model_id, fewshot_path=fewshot_path)
+    elif model_type == "qwen":
+        from models.baseline_dst import Qwen3_DST_GenericBaseline
+        return Qwen3_DST_GenericBaseline(model_id=model_id, fewshot_path=fewshot_path)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
@@ -39,15 +46,15 @@ def get_model(model_type, model_id="google/flan-t5-base", fewshot_path=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, help="Path to dev/test JSON file", default="data/mw21/dev_dials.json")
-    parser.add_argument("--model", type=str, choices=["t5", "gpt", "hf"], default="hf")
-    parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--hf_model_id", type=str, help="Model ID from HuggingFace for HF mode", default="Qwen/Qwen3-0.6B")
+    parser.add_argument("--model", type=str, choices=["t5", "gpt", "hf", "qwen"], default="qwen")
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--model_id", type=str, help="Model ID ", default="Qwen/Qwen3-0.6B")
     parser.add_argument("--fewshot_data", type=str, help="Path to training data JSON file for few-shot examples", default="data/mw21/train_dials.json")
 
     args = parser.parse_args()
-    args.backup_path = f"results/predictions/{args.model}_{args.hf_model_id}.json"
+    args.backup_path = f"results/predictions/{args.model}_{args.model_id}.json"
     
-    model = get_model(args.model, model_id=args.hf_model_id)
+    model = get_model(args.model, model_id=args.model_id)
     dialogues, gold_states = load_dialogues(args.data_path)
     formatted_dialogues = [model.format_dialogue_history(turns) for turns in dialogues]
 
@@ -61,7 +68,10 @@ def main():
     pbar = tqdm(total=len(formatted_dialogues), initial=start)
     for i in range(start, len(formatted_dialogues), args.batch_size):
         batch = formatted_dialogues[i:i + args.batch_size]
-        batch_preds = model.predict_belief_state_batch(batch)
+        if args.model == "qwen":
+            batch_preds, thinking_contents = model.predict_belief_state_batch(batch)
+        else:
+            batch_preds = model.predict_belief_state_batch(batch)
         for j, pred in enumerate(batch_preds):
             dialogue_index = i + j
             entry = {
@@ -71,6 +81,8 @@ def main():
                 "parsed_prediction": parse_belief_state(pred),
                 "gold_state": gold_states[dialogue_index],
             }
+            if args.model == "qwen":
+                entry["thinking_content"] = thinking_contents[j]
             predictions.append(entry)
 
         current_parsed_preds = [entry["parsed_prediction"] for entry in predictions]
@@ -82,6 +94,9 @@ def main():
 
         print(f"[{len(predictions)} turns] JGA: {jga:.2%} | Turn Acc: {turn_acc:.2%} | F1: {f1:.2%} (P: {precision:.2%}, R: {recall:.2%})")
 
+        if not os.path.exists(os.path.dirname(args.backup_path)):
+            os.makedirs(os.path.dirname(args.backup_path))
+        print(f"Saving predictions to {args.backup_path}")
         with open(args.backup_path, "w", encoding="utf-8") as f:
             json.dump(predictions, f, ensure_ascii=False, indent=4)
 

@@ -14,25 +14,42 @@ def normalize_value(value):
     return mapping.get(value, value)
 
 
-def parse_belief_state(raw_pred):
-    """
-    Convert raw model output string into normalized slot-value dictionary.
-    Expected input: "hotel-price=cheap, hotel-area=centre"
-    """
-    belief = {}
-    if not raw_pred or not isinstance(raw_pred, str):
-        return belief
+import json
+import re
 
-    items = [x.strip() for x in raw_pred.strip().split(",") if "=" in x]
-    for item in items:
-        try:
-            slot, value = item.split("=", 1)
-            slot = slot.strip()
-            value = normalize_value(value)
-            belief[slot] = value
-        except ValueError:
-            continue
-    return belief
+def parse_belief_state(pred: str) -> dict:
+    """
+    Extract and parse the belief state JSON from a prediction string.
+    
+    This handles:
+    - <think>...</think> wrapping
+    - extra text before or after the JSON
+    - simple JSON decoding errors
+    """
+    # Step 1: Remove <think> tags if present
+    pred = re.sub(r"</?think>", "", pred, flags=re.IGNORECASE).strip()
+
+    # Step 2: Find the first JSON object using regex
+    json_match = re.search(r'\{.*?\}', pred, re.DOTALL)
+    if not json_match:
+        return {}  # No JSON found
+
+    json_str = json_match.group()
+
+    # Step 3: Try to parse the JSON
+    try:
+        belief_state = json.loads(json_str)
+    except json.JSONDecodeError:
+        return {}  # Invalid JSON
+
+    # Step 4: Normalize keys and values
+    cleaned_belief_state = {}
+    for k, v in belief_state.items():
+        k = k.strip().lower()
+        v = v.strip().lower() if isinstance(v, str) else v
+        cleaned_belief_state[k] = v
+
+    return cleaned_belief_state
 
 
 def compute_joint_goal_accuracy(pred_beliefs, gold_beliefs):
